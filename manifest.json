@@ -1,0 +1,16 @@
+{
+  "short_name": "NatureLog",
+  "name": "NatureLog Pro 생태기록장",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2921/2921820.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#111111",
+  "theme_color": "#1e293b",
+  "display": "standalone",
+  "orientation": "portrait"
+}
