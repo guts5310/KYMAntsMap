@@ -701,14 +701,14 @@ function handlePhotoUpload(ev) {
   ev.target.value = '';
 }
 
-// ── 📸 고속 압축 및 용량 다이어트 프로세서 (경고창 해결용) ──
+// ── 📸 [최종판] 초강력 용량 다이어트 및 파일 블롭(Blob) 압축 프로세서 ──
 function finalizePureImageProcessing(file) {
   const imgReader = new FileReader();
   imgReader.onload = function(evt) {
     const img = new Image();
     img.onload = function() {
-      // 1. 최대 해상도를 1280에서 1024(또는 800)로 낮춰서 용량을 대폭 줄입니다.
-      const max_size = 1024;
+      // 1. 최대 해상도를 800픽셀로 대폭 제한 (모바일 화면에서는 충분히 선명함)
+      const max_size = 800;
       let width = img.width;
       let height = img.height;
 
@@ -724,24 +724,33 @@ function finalizePureImageProcessing(file) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, width, height);
 
-      // 2. 압축 퀄리티를 0.85에서 0.65(65%)로 낮춥니다.
-      // 스마트폰 화면에서 썸네일로 보기에는 화질 저하가 거의 없으면서 용량은 극적으로 줄어듭니다!
-      const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
+      // 2. 압축률을 0.5(50%)로 과감하게 낮추고 Canvas 가상 파일화(toBlob) 처리
+      // 이 방식으로 변환해야 브라우저 메모리 폭발을 원천 차단할 수 있습니다.
+      canvas.toBlob(function(blob) {
+        if (!blob) return;
 
-      // 내 프로젝트의 사진 저장 배열(예: pendingPhotos)에 매핑
-      if (typeof pendingPhotos !== 'undefined') {
-        const idx = pendingPhotos.length;
-        pendingPhotos.push({ dataUrl: compressedDataUrl });
+        // 웹뷰 내부 저장 공간에 부담이 없도록 초경량화된 DataURL을 새로 생성
+        const blobReader = new FileReader();
+        blobReader.onloadend = function() {
+          const compressedDataUrl = blobReader.result;
 
-        const pw = document.getElementById('photo-previews');
-        if (pw) {
-          const w = document.createElement('div');
-          w.className = 'preview-img-wrap';
-          w.dataset.idx = idx;
-          w.innerHTML = `<img class="preview-img" src="${compressedDataUrl}"><button class="preview-remove" onclick="removePhoto(${idx})">✕</button>`;
-          pw.appendChild(w);
-        }
-      }
+          // 내 프로젝트의 사진 저장 배열(pendingPhotos)에 안전하게 매핑
+          if (typeof pendingPhotos !== 'undefined') {
+            const idx = pendingPhotos.length;
+            pendingPhotos.push({ dataUrl: compressedDataUrl });
+
+            const pw = document.getElementById('photo-previews');
+            if (pw) {
+              const w = document.createElement('div');
+              w.className = 'preview-img-wrap';
+              w.dataset.idx = idx;
+              w.innerHTML = `<img class="preview-img" src="${compressedDataUrl}"><button class="preview-remove" onclick="removePhoto(${idx})">✕</button>`;
+              pw.appendChild(w);
+            }
+          }
+        };
+        blobReader.readAsDataURL(blob);
+      }, 'image/jpeg', 0.5); // JPEG 포맷 50% 압축률 타겟팅
     };
     img.src = evt.target.result;
   };
