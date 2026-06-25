@@ -631,58 +631,111 @@
     document.getElementById('new-preset-text').value='';
   }
   // ── HIGH-RESOLUTION REWRITTEN PHOTO UPLOAD ──
-  function handlePhotoUpload(ev){
-    const files = Array.from(ev.target.files);
-    if(!files.length) return;
+  // ── 1. [여기에 붙여넣기] 스크립트 최상단이나 적당한 빈 공간에 스프레드시트 링크 선언
+let cloudLocationDB = {};
 
-    files.forEach(file => {
-      // 대용량 원본(50MP/200MP)의 데이터 폭발을 막기 위해 메타데이터 헤더 영역(앞쪽 2MB)만 분리 추출
-      const chunk = file.slice(0, 1024 * 1024 * 2);
-      const reader = new FileReader();
+// ⚠️ 구글 시트에서 [파일] ➔ [공유] ➔ [웹에 게시] ➔ 링크 형태를 [쉼표로 구분된 값(.csv)]으로 선택 후 발급받은 URL을 여기에 넣으세요!
+const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTOdXejzvdTQS9G16XlJoAZ1sRETM-VdXFRIz3Ucpr2-kiwrP2b_FiqyizEJ4dkYL-Tqi0tqpk6zsz9/pub?output=csv";
 
-      reader.onload = function(e) {
-        // 분할 가상 블롭(Blob) 객체를 생성하여 EXIFJS 라이브러리에 안정적인 데이터 스트림 제공
-        const blobChunk = new Blob([e.target.result], { type: file.type });
-
-        try {
-          EXIF.getData(blobChunk, function() {
-            const lat = EXIF.getTag(this, "GPSLatitude");
-            const lng = EXIF.getTag(this, "GPSLongitude");
-            const latRef = EXIF.getTag(this, "GPSLatitudeRef");
-            const lngRef = EXIF.getTag(this, "GPSLongitudeRef");
-            const exifDate = EXIF.getTag(this, "DateTimeOriginal") || EXIF.getTag(this, "DateTime");
-
-            let finalLat = null;
-            let finalLng = null;
-            let formattedDate = null;
-
-            // 도/분/초 도법 가산식 연산
-            if (lat && lat.length === 3 && latRef) {
-              finalLat = lat[0] + (lat[1] / 60) + (lat[2] / 3600);
-              if (latRef === 'S') finalLat = -finalLat;
-            }
-            if (lng && lng.length === 3 && lngRef) {
-              finalLng = lng[0] + (lng[1] / 60) + (lng[2] / 3600);
-              if (lngRef === 'W') finalLng = -finalLng;
-            }
-            if (exifDate) {
-              formattedDate = exifDate.toString().slice(0, 10).replace(/:/g, '-');
-            }
-
-            // EXIF 원본 보정이 완료되면 실제 원본 이미지 압축 리사이징 파이프라인으로 바인딩
-            finalizeImageProcessing(file, finalLat, finalLng, formattedDate);
-          });
-        } catch (err) {
-          // 파싱 중 불의의 예외 발생 시 안전하게 롤백
-          finalizeImageProcessing(file, null, null, null);
+// 앱이 켜질 때 자동으로 구글 시트 데이터를 0.1초 만에 로드하는 함수
+function syncCloudLocationDB() {
+  if (!GOOGLE_SHEET_CSV_URL || GOOGLE_SHEET_CSV_URL.includes("XXXXXX")) return;
+  fetch(GOOGLE_SHEET_CSV_URL)
+    .then(res => res.text())
+    .then(csvText => {
+      const lines = csvText.split('\n');
+      cloudLocationDB = {};
+      lines.forEach((line, index) => {
+        if (index === 0 || !line.trim()) return;
+        const cols = line.split(',');
+        if (cols.length >= 3) {
+          const fileName = cols[0].replace(/"/g, '').trim(); // A열: 파일명
+          const lat = parseFloat(cols[1]);                 // B열: 위도
+          const lng = parseFloat(cols[2]);                 // C열: 경도
+          const date = cols[3] ? cols[3].replace(/"/g, '').trim() : ''; // D열: 날짜
+          if (!isNaN(lat) && !isNaN(lng)) {
+            cloudLocationDB[fileName] = { lat, lng, date };
+          }
         }
-      };
+      });
+      console.log("🚀 구글 시트 실시간 GPS 데이터 동기화 완료!");
+    })
+    .catch(err => console.error("구글 시트 연동 실패:", err));
+}
 
-      reader.readAsArrayBuffer(chunk);
-    });
-    // 다중 연속 업로드가 먹통이 되지 않도록 파일 타겟 버퍼 비우기
-    ev.target.value = '';
-  }
+// 웹페이지가 로드되면 즉시 구글 시트 동기화 실행
+window.addEventListener('DOMContentLoaded', syncCloudLocationDB);
+
+
+// ── 2. [기존 함수 덮어쓰기] 기존에 쓰시던 handlePhotoUpload 함수를 찾아서 아래 내용으로 교체
+function handlePhotoUpload(ev) {
+  const files = Array.from(ev.target.files);
+  if (!files.length) return;
+
+  files.forEach(file => {
+    const fileName = file.name; // 사진 무거운 알맹이는 무시하고 오직 '파일명'만 추출
+
+    // 구글 스프레드시트에서 받아온 데이터에 이 파일명이 있는지 스캔
+    if (cloudLocationDB[fileName]) {
+      const meta = cloudLocationDB[fileName];
+
+      // 웹 화면의 위도, 경도, 날짜 입력창에 즉시 자동 기입!
+      document.getElementById('obs-lat').value = meta.lat.toFixed(6);
+      document.getElementById('obs-lng').value = meta.lng.toFixed(6);
+      if (meta.date) document.getElementById('obs-date').value = meta.date;
+
+      const pl = document.getElementById('picked-location');
+      if (pl) {
+        pl.style.display = 'block';
+        pl.textContent = `☁️ 구글 시트 GPS 매칭 성공 (${meta.lat.toFixed(4)}, ${meta.lng.toFixed(4)})`;
+      }
+      if (typeof showToast === 'function') showToast('🚀 구글 시트 실시간 GPS 동기화 완료!');
+
+      // 이미지 미리보기 썸네일 생성 함수로 전달
+      finalizePureImageProcessing(file);
+    } else {
+      if (typeof showToast === 'function') showToast('📷 시트에 없는 사진입니다. 수동 입력을 권장합니다.');
+      finalizePureImageProcessing(file);
+    }
+  });
+  ev.target.value = '';
+}
+
+// ── 3. 이미지 압축 및 미리보기 타일 생성 함수 (같이 붙여넣어 두세요)
+function finalizePureImageProcessing(file) {
+  const imgReader = new FileReader();
+  imgReader.onload = function(evt) {
+    const img = new Image();
+    img.onload = function() {
+      const max_size = 1280;
+      let width = img.width, height = img.height;
+      if (width > height) { if (width > max_size) { height *= max_size / width; width = max_size; } }
+      else { if (height > max_size) { width *= max_size / height; height = max_size; } }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+      // 기존 프로젝트의 사진 저장 배열 이름(예: pendingPhotos)에 맞게 연동하세요
+      if (typeof pendingPhotos !== 'undefined') {
+        const idx = pendingPhotos.length;
+        pendingPhotos.push({ dataUrl: compressedDataUrl });
+
+        const pw = document.getElementById('photo-previews');
+        if (pw) {
+          const w = document.createElement('div'); w.className = 'preview-img-wrap'; w.dataset.idx = idx;
+          w.innerHTML = `<img class="preview-img" src="${compressedDataUrl}"><button class="preview-remove" onclick="removePhoto(${idx})">✕</button>`;
+          pw.appendChild(w);
+        }
+      }
+    };
+    img.src = evt.target.result;
+  };
+  imgReader.readAsDataURL(file);
+}
 
   // ── IMAGE RESIZE & WEBPAGE CONTAINER COMPRESS ──
   function finalizeImageProcessing(file, finalLat, finalLng, formattedDate) {
