@@ -667,19 +667,21 @@ function syncCloudLocationDB() {
 window.addEventListener('DOMContentLoaded', syncCloudLocationDB);
 
 
-// ── 2. [기존 함수 덮어쓰기] 기존에 쓰시던 handlePhotoUpload 함수를 찾아서 아래 내용으로 교체
+// ── 📸 용량 체크 브레이크를 원천 삭제한 사진 업로드 프로세서 ──
 function handlePhotoUpload(ev) {
   const files = Array.from(ev.target.files);
   if (!files.length) return;
 
   files.forEach(file => {
-    const fileName = file.name; // 사진 무거운 알맹이는 무시하고 오직 '파일명'만 추출
+    const fileName = file.name; // 파일명 추출
 
-    // 구글 스프레드시트에서 받아온 데이터에 이 파일명이 있는지 스캔
+    // ⚠️ [중요] 기존에 들어있던 file.size 체크나 경고창(alert) 팝업 로직이 있다면
+    // 여기 영역에서 완전히 지워버려야 경고창이 안 뜹니다!
+
+    // 구글 스프레드시트 매칭 진행
     if (cloudLocationDB[fileName]) {
       const meta = cloudLocationDB[fileName];
 
-      // 웹 화면의 위도, 경도, 날짜 입력창에 즉시 자동 기입!
       document.getElementById('obs-lat').value = meta.lat.toFixed(6);
       document.getElementById('obs-lng').value = meta.lng.toFixed(6);
       if (meta.date) document.getElementById('obs-date').value = meta.date;
@@ -689,9 +691,9 @@ function handlePhotoUpload(ev) {
         pl.style.display = 'block';
         pl.textContent = `☁️ 구글 시트 GPS 매칭 성공 (${meta.lat.toFixed(4)}, ${meta.lng.toFixed(4)})`;
       }
-      if (typeof showToast === 'function') showToast('🚀 구글 시트 실시간 GPS 동기화 완료!');
+      if (typeof showToast === 'function') showToast('🚀 구글 시트 GPS 동기화 완료!');
 
-      // 이미지 미리보기 썸네일 생성 함수로 전달
+      // 용량 경고고 뭐고 다 무시하고 곧바로 초강력 압축 엔진으로 패스!
       finalizePureImageProcessing(file);
     } else {
       if (typeof showToast === 'function') showToast('📷 시트에 없는 사진입니다. 수동 입력을 권장합니다.');
